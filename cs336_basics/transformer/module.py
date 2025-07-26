@@ -6,6 +6,7 @@ from jaxtyping import Float, Int
 
 from torch import Tensor
 
+
 class Linear(nn.Module):
     def __init__(
         self,
@@ -74,7 +75,7 @@ class Embedding(nn.Module):
         )
 
 
-class SwiGLU(nn.Module):
+class FFNSwiGLU(nn.Module):
     def __init__(
         self,
         embed_dim: int,
