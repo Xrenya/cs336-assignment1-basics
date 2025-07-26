@@ -8,7 +8,9 @@ from jaxtyping import Float, Int
 import numpy.typing as npt
 import torch
 from torch import Tensor
+import numpy as np
 
+from cs336_basics.transformer.module import Linear
 
 
 def run_linear(
@@ -29,8 +31,9 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    linear = Linear(d_in, d_out, False, device=weights.device)
+    linear.load_state_dict({"weight": weights})
+    return linear(in_features)
 
 
 def run_embedding(
@@ -416,7 +419,16 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    dataset_len = dataset.shape[0]
+    if dataset_len < context_length:
+        raise ValueError(f"Dataset size {dataset_len} is less then `context_lenght` {context_length}")
+    indexes = np.random.randint(0, dataset_len - context_length, size=batch_size)
+    x = np.stack([dataset[start:start + context_length] for start in indexes], dtype=np.int64)
+    y = np.stack([dataset[start + 1:start + context_length + 1] for start in indexes], dtype=np.int64)
+    return (
+        torch.from_numpy(x),
+        torch.from_numpy(y)
+    )
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
