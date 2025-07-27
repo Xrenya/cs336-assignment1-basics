@@ -152,3 +152,43 @@ class SiLU(nn.Module):
 
     def forward(self, x):
         return self.swish(x)
+
+
+class Softmax(nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+        self.dim = dim
+    
+    def forward(self, x):
+        values, indices = torch.max(x, dim=self.dim, keepdim=True)
+        x = x - values
+        e_x = torch.exp(x)
+        return e_x / torch.sum(e_x, dim=self.dim, keepdim=True)
+
+
+class Attention(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.softmax = Softmax(dim=-1)
+
+    def forward(
+        self,
+        q: Float[Tensor, " ... queries d_k"],
+        k: Float[Tensor, " ... keys d_k"],
+        v: Float[Tensor, " ... values d_v"],
+        mask: Float[Tensor, " ... queries keys"] | None = None,
+    ):
+        *_, head_dim = q.shape
+        q = q * head_dim**-0.5
+        weight = q @ k.transpose(-2, -1)
+        if mask is not None:
+            weight.masked_fill_(mask.logical_not(), float("-inf"))
+            # weight[mask.logical_not()] = -torch.inf
+            # weight[~mask] = -torch.inf
+        score = self.softmax(weight)
+        attn = score @ v
+        return attn
+    
+
+# class MultiHeadAttention(nn.Module):
+#     def __init__(self, )

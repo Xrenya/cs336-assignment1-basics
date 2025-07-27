@@ -10,7 +10,9 @@ import torch
 from torch import Tensor
 import numpy as np
 
-from cs336_basics.transformer.module import Linear, Embedding, SwiGLU, SiLU
+from cs336_basics.transformer.module import (
+    Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention
+)
 
 
 def run_linear(
@@ -88,7 +90,7 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    swiglu = SwiGLU(d_model, d_ff)
+    swiglu = FFNSwiGLU(d_model, d_ff)
     swiglu.load_state_dict({
         "w1.weight": w1_weight,
         "w2.weight": w2_weight,
@@ -115,7 +117,8 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    attention = Attention()
+    return attention(Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -452,7 +455,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    softmax = Softmax(dim)
+    return softmax(in_features)
 
 
 def run_cross_entropy(
