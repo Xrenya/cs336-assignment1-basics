@@ -268,7 +268,8 @@ class RotaryEmbedding(nn.Module):
         device: Optional[None] = None,
     ):
         """
-        RoPE embeddings
+        Rotary Position Embedding (RoPE) module
+        "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2021).
 
         Args:
             theta: Frequency base (typically 10,000)
@@ -340,3 +341,34 @@ class RotaryEmbedding(nn.Module):
         x_real = rearrange(x_real, "... seq d two -> ... seq (d two)")
 
         return x_real.to(in_query_or_key.dtype)
+
+
+class RMSNorm(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        eps: float,
+        device: Optional[None] = None,
+        dtype: Optional[None] = None,
+    ):
+        """Root Mean Square Layer Normalization
+        Paper: https://arxiv.org/pdf/1910.07467
+
+        """
+        super().__init__()
+        self.d_model = d_model
+        self.eps = eps
+        self.weight = nn.Parameter(
+            torch.empty(
+                d_model,
+                dtype=dtype,
+                device=device
+            )
+        )
+
+    def forward(self, in_features: Float[Tensor, " ... d_model"]):
+        rms = torch.sqrt(torch.sum(in_features**2, dim=-1, keepdim=True) / self.d_model)
+        output = in_features / (rms + self.eps)
+        output = output * self.weight
+        return output
+    
