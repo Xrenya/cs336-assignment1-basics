@@ -5,6 +5,7 @@ import torch.nn as nn
 from jaxtyping import Float, Int
 
 from torch import Tensor
+from einops import rearrange
 
 
 class Linear(nn.Module):
@@ -190,5 +191,52 @@ class Attention(nn.Module):
         return attn
     
 
-# class MultiHeadAttention(nn.Module):
-#     def __init__(self, )
+class MultiHeadAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        device: Optional[None] = None,
+        dtype: Optional[None] = None,
+    ):
+        super().__init__()
+        self.device = device
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.qkv = Linear(
+            in_features=d_model,
+            out_features=3 * d_model,
+            device=device,
+            dtype=dtype,
+        )
+        self.projection = Linear(
+            in_features=d_model,
+            out_features=d_model,
+            device=device,
+            dtype=dtype,
+        )
+        self.attention = Attention()
+
+    def forward(
+        self, in_features: Float[Tensor, " ... sequence_length d_in"]
+    ):  
+        seq_len = in_features.shape[-2]
+        qkv = self.qkv(in_features)
+        q, k, v = rearrange(
+            qkv,
+            "... seq_len (split head d_k) -> split ... head seq_len d_k",
+            split=3,
+            head=self.num_heads
+        )
+        mask = torch.tril(
+            torch.ones((seq_len, seq_len), dtype=torch.bool)
+        ).to(self.device)
+        attn = self.attention(q, k, v, mask=mask)
+        attn = rearrange(
+            attn,
+            "... head seq_len d_k -> ... seq_len (head d_k)")
+        proj = self.projection(attn)
+        return proj
+
+
