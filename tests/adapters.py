@@ -12,8 +12,9 @@ import numpy as np
 
 from cs336_basics.transformer.module import (
     Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention, MultiHeadAttention,
-    RotaryEmbedding, RMSNorm
+    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE
 )
+from cs336_basics.transformer.utils import clip_gradients, cross_entropy_loss
 
 
 def run_linear(
@@ -153,7 +154,6 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    *_, d_proj = in_features.shape
     atten = MultiHeadAttention(d_model, num_heads)
     atten.load_state_dict(
         {
@@ -205,7 +205,19 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    
+    atten = MultiHeadAttentionRoPE(d_model, num_heads, max_seq_len, theta)
+    atten.load_state_dict(
+        {
+            "qkv.weight": torch.cat([
+                q_proj_weight,
+                k_proj_weight,
+                v_proj_weight
+            ], dim=0),
+            "projection.weight": o_proj_weight,
+        }
+    )
+    return atten(in_features, token_positions)
 
 
 def run_rope(
@@ -481,7 +493,7 @@ def run_cross_entropy(
     inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
 ) -> Float[Tensor, ""]:
     """Given a tensor of inputs and targets, compute the average cross-entropy
-    loss across examples.
+    loss across examples.`
 
     Args:
         inputs (Float[Tensor, "batch_size vocab_size"]): inputs[i][j] is the
@@ -492,7 +504,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy_loss(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -504,7 +516,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    return clip_gradients(parameters, max_l2_norm)
 
 
 def get_adamw_cls() -> type[torch.optim.Optimizer]:
@@ -558,7 +570,12 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    data = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+    torch.save(data, out)
 
 
 def run_load_checkpoint(
@@ -579,7 +596,9 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    data = torch.load(src)
+    model.load_state_dict(data["model"])
+    optimizer.load_state_dict(data["optimizer"])
 
 
 def get_tokenizer(

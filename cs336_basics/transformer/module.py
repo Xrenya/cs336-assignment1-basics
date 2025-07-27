@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Iterable, Tuple, Callable
 
 import torch
 import torch.nn as nn
@@ -343,6 +343,76 @@ class RotaryEmbedding(nn.Module):
         return x_real.to(in_query_or_key.dtype)
 
 
+class MultiHeadAttentionRoPE(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        max_seq_len: int,
+        theta: float,
+        device: Optional[None] = None,
+        dtype: Optional[None] = None,
+    ):
+        """
+        Multi-Head Attention
+        
+        Args:
+            d_model (int): Dimensionality of the feedforward input and output.
+            num_heads (int): Number of heads to use in multi-headed attention.
+            max_seq_len (int): Maximum sequence length to pre-cache if your implementation does that.
+        """
+        super().__init__()
+        self.device = device
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.rope = RotaryEmbedding(theta, self.head_dim, max_seq_len, device=device)
+        self.qkv = Linear(
+            in_features=d_model,
+            out_features=3 * d_model,
+            device=device,
+            dtype=dtype,
+        )
+        self.projection = Linear(
+            in_features=d_model,
+            out_features=d_model,
+            device=device,
+            dtype=dtype,
+        )
+        self.attention = Attention()
+
+    def forward(
+        self,
+        in_features: Float[Tensor, " ... sequence_length d_in"],
+        token_positions: Int[Tensor, " ... sequence_length"] | None = None
+    ):
+        """
+        Forward method
+        
+        Args:
+            in_features (Float[Tensor, "... sequence_length d_in"]): Input tensor
+        """
+        seq_len = in_features.shape[-2]
+        qkv = self.qkv(in_features)
+        q, k, v = rearrange(
+            qkv,
+            "... seq_len (split head d_k) -> split ... head seq_len d_k",
+            split=3,
+            head=self.num_heads
+        )
+        q = self.rope(q, token_positions)
+        k = self.rope(k, token_positions)
+        mask = torch.tril(
+            torch.ones((seq_len, seq_len), dtype=torch.bool)
+        ).to(self.device)
+        attn = self.attention(q, k, v, mask=mask)
+        attn = rearrange(
+            attn,
+            "... head seq_len d_k -> ... seq_len (head d_k)")
+        proj = self.projection(attn)
+        return proj
+    
+
 class RMSNorm(nn.Module):
     def __init__(
         self,
@@ -371,4 +441,66 @@ class RMSNorm(nn.Module):
         output = in_features / (rms + self.eps)
         output = output * self.weight
         return output
-    
+
+
+class Adam(torch.optim.Optimizer):
+    def __init__(
+        self,
+        params: Iterable[torch.nn.Parameter],
+        lr: float,
+        betas: Tuple[float, float] = (0.9, 0.999),
+        weight_decay: float = 0.01,
+        eps: float = 1e-8
+    ):
+        defaults  = {
+            "lr": lr,
+            "betas": betas,
+            "weight_decay": weight_decay,
+            "eps": eps,
+        }
+        super().__init__(params, defaults)
+
+    def step(self, closure: Optional[Callable] = None):
+        loss = None if closure is None else closure()
+
+        # https://stats.stackexchange.com/questions/232741/why-is-it-important-to-include-a-bias-correction-term-for-the-adam-optimizer-for
+        for group in self.param_groups:
+            lr = group["lr"]
+            betas = group["betas"]
+            weight_decay = group["weight_decay"]
+            eps = group["eps"]
+
+            for param in group["params"]:
+                if param.grad in None:
+                    continue
+
+                state = self.state[param]
+                if not state:
+                    state["step"] = 1
+                    state["exp_avg"] = torch.zeros_like(param.data)
+                    state["exp_avg_sq"] = torch.zeros_like(param.data)
+
+                step = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                beta1, beta2 = betas
+                grad = param.grad.data
+
+                state["exp_avg"] = beta1 * exp_avg + (1 - beta1) * grad
+                state["exp_avg_sq"] = beta2 * exp_avg_sq + (1 - beta2) * grad**2
+
+                lr_t = lr * (1 - beta2**step)**0.5 / (1 - beta1**step)
+
+                # Calculate weight decay term based on CURRENT parameter value
+                weight_decay_term = lr * weight_decay * param.data
+                
+                # Apply Adam update
+                param.data -= lr_t * state["exp_avg"] / (torch.sqrt(state["exp_avg_sq"]) + eps)
+                
+                # Apply weight decay
+                param.data -= weight_decay_term
+
+                step["step"] += 1
+
+        return loss
