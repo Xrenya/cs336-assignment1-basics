@@ -599,6 +599,8 @@ def run_load_checkpoint(
     data = torch.load(src)
     model.load_state_dict(data["model"])
     optimizer.load_state_dict(data["optimizer"])
+    iteration = data["iteration"]
+    return iteration
 
 
 def get_tokenizer(
