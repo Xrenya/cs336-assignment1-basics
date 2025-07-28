@@ -12,7 +12,7 @@ import numpy as np
 
 from cs336_basics.transformer.module import (
     Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention, MultiHeadAttention,
-    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE
+    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW
 )
 from cs336_basics.transformer.utils import clip_gradients, cross_entropy_loss
 
@@ -523,7 +523,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
