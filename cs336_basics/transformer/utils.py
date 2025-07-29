@@ -4,6 +4,7 @@ from jaxtyping import Float, Int
 import torch
 import torch.nn as nn
 from torch import Tensor
+import math
 
 
 def clip_gradients(
@@ -36,3 +37,21 @@ def cross_entropy_loss(
     logp_1 = torch.log(torch.sum(torch.exp(inputs), dim=-1))
 
     return (-logp + logp_1).mean()
+
+
+def get_lr_cosine_schedule(
+    it: int,
+    max_learning_rate: float,
+    min_learning_rate: float,
+    warmup_iters: int,
+    cosine_cycle_iters: int,
+):
+    if it < warmup_iters:
+        return max_learning_rate * it / warmup_iters
+    elif it < cosine_cycle_iters:
+        cos = (it - warmup_iters) / (cosine_cycle_iters - warmup_iters)
+        lr = min_learning_rate + 0.5 * (
+            max_learning_rate - min_learning_rate
+        ) * (1 + math.cos(cos_percent * math.pi))
+        return lr
+    return min_learning_rate

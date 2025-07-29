@@ -14,7 +14,11 @@ from cs336_basics.transformer.module import (
     Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention, MultiHeadAttention,
     RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW
 )
-from cs336_basics.transformer.utils import clip_gradients, cross_entropy_loss
+from cs336_basics.transformer.utils import (
+    clip_gradients,
+    cross_entropy_loss,
+    get_lr_cosine_schedule
+)
 
 
 def run_linear(
@@ -551,7 +555,10 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return get_lr_cosine_schedule(
+        it, max_learning_rate, min_learning_rate,
+        warmup_iters, cosine_cycle_iters,
+    )
 
 
 def run_save_checkpoint(
