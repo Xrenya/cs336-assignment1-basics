@@ -289,13 +289,13 @@ class RotaryEmbedding(nn.Module):
         freqs = 1.0 / (
             self.theta ** (
                 torch.arange(
-                    0, self.d_k, 2, device=self.device, dtype=torch.float32
+                    0, self.d_k, 2, device=self.device
                 ) / self.d_k
             )
         )  # (self.d_k // 2,)
 
         seq_indices = torch.arange(
-            self.max_seq_len, device=self.device, dtype=torch.float32
+            self.max_seq_len, device=self.device
         )  # [0, 1, 2, ... , max_seq_len - 1]
 
         freqs = torch.einsum("i,j -> ij", seq_indices, freqs)
@@ -328,7 +328,7 @@ class RotaryEmbedding(nn.Module):
             )
         
         # Reshape to handle dimension pairs: (*, seq_len, d_k) -> (*, seq_len, d_k//2, 2)
-        x_complex = rearrange(in_query_or_key, "... seq (d two) -> ... seq d two", two=2).float()
+        x_complex = rearrange(in_query_or_key, "... seq (d two) -> ... seq d two", two=2).to(torch.float32)
 
         x_complex = torch.view_as_complex(x_complex)
         
@@ -417,7 +417,7 @@ class RMSNorm(nn.Module):
     def __init__(
         self,
         d_model: int,
-        eps: float,
+        eps: float = 1e-5,
         device: Optional[None] = None,
         dtype: Optional[None] = None,
     ):
@@ -429,7 +429,7 @@ class RMSNorm(nn.Module):
         self.d_model = d_model
         self.eps = eps
         self.weight = nn.Parameter(
-            torch.empty(
+            torch.ones(
                 d_model,
                 dtype=dtype,
                 device=device
@@ -437,8 +437,8 @@ class RMSNorm(nn.Module):
         )
 
     def forward(self, in_features: Float[Tensor, " ... d_model"]):
-        rms = torch.sqrt(torch.sum(in_features**2, dim=-1, keepdim=True) / self.d_model)
-        output = in_features / (rms + self.eps)
+        rms = torch.sqrt(torch.sum(in_features**2, dim=-1, keepdim=True) / self.d_model + self.eps)
+        output = in_features / (rms)
         output = output * self.weight
         return output
 
@@ -505,3 +505,42 @@ class AdamW(torch.optim.Optimizer):
                 state["step"] += 1
 
         return loss
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        max_seq_len: int,
+        theta: float = 10000.0,
+        device: Optional[None] = None,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        self.ln1 = RMSNorm(d_model)
+        self.ln2 = RMSNorm(d_model)
+        self.attention = MultiHeadAttentionRoPE(
+            d_model, num_heads, max_seq_len, theta
+        )
+        self.ffn = FFNSwiGLU(d_model, d_ff)
+
+    def forward(
+        self,
+        in_features: Float[Tensor, " batch sequence_length d_model"]
+    ):
+
+        token_positions = torch.arange(
+            in_features.shape[-2],
+            dtype=torch.int,
+            device=in_features.device
+        )
+        ln = self.ln1(in_features)
+        attn_features = self.attention(ln, token_positions)
+        out_features = attn_features + in_features
+        ffn = self.ffn(self.ln2(out_features))
+        return out_features + ffn
+

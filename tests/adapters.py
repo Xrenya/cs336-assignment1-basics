@@ -12,7 +12,7 @@ import numpy as np
 
 from cs336_basics.transformer.module import (
     Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention, MultiHeadAttention,
-    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW
+    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW, TransformerBlock
 )
 from cs336_basics.transformer.utils import (
     clip_gradients,
@@ -317,7 +317,26 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    block = TransformerBlock(
+        d_model, num_heads, d_ff,
+        max_seq_len, theta
+    )
+    block.load_state_dict({
+        "attention.qkv.weight": torch.cat([
+            weights["attn.q_proj.weight"],
+            weights["attn.k_proj.weight"],
+            weights["attn.v_proj.weight"],
+        ], dim=0),
+        "attention.projection.weight": weights["attn.output_proj.weight"],
+
+        "ln1.weight": weights["ln1.weight"],
+        "ln2.weight": weights["ln2.weight"],
+
+        "ffn.w1.weight": weights["ffn.w1.weight"],
+        "ffn.w2.weight": weights["ffn.w2.weight"],
+        "ffn.w3.weight": weights["ffn.w3.weight"],
+    })
+    return block(in_features)
 
 
 def run_transformer_lm(
