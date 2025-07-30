@@ -12,7 +12,8 @@ import numpy as np
 
 from cs336_basics.transformer.module import (
     Linear, Embedding, FFNSwiGLU, SiLU, Softmax, Attention, MultiHeadAttention,
-    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW, TransformerBlock
+    RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW, TransformerBlock,
+    TransformerLM
 )
 from cs336_basics.transformer.utils import (
     clip_gradients,
@@ -418,8 +419,35 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    lm = TransformerLM(
+        vocab_size, context_length, d_model,
+        num_layers, num_heads, d_ff, rope_theta
+    )
+    model_state_dict = {
+        "embed.embed": weights["token_embeddings.weight"],
+    }
+    for i in range(num_layers):
+        model_state_dict.update({
+            f"layers.{i}.attention.qkv.weight": torch.cat([
+                weights[f"layers.{i}.attn.q_proj.weight"],
+                weights[f"layers.{i}.attn.k_proj.weight"],
+                weights[f"layers.{i}.attn.v_proj.weight"],
+            ], dim=0),
+            f"layers.{i}.attention.projection.weight": weights[f"layers.{i}.attn.output_proj.weight"],
 
+            f"layers.{i}.ln1.weight": weights[f"layers.{i}.ln1.weight"],
+            f"layers.{i}.ln2.weight": weights[f"layers.{i}.ln2.weight"],
+
+            f"layers.{i}.ffn.w1.weight": weights[f"layers.{i}.ffn.w1.weight"],
+            f"layers.{i}.ffn.w2.weight": weights[f"layers.{i}.ffn.w2.weight"],
+            f"layers.{i}.ffn.w3.weight": weights[f"layers.{i}.ffn.w3.weight"],
+        })
+    model_state_dict.update({
+        "ln.weight": weights["ln_final.weight"],
+        "lm_head.weight": weights["lm_head.weight"]
+    })
+    lm.load_state_dict(model_state_dict)
+    return lm(in_indices)
 
 def run_rmsnorm(
     d_model: int,

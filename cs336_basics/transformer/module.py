@@ -5,7 +5,7 @@ import torch.nn as nn
 from jaxtyping import Float, Int
 
 from torch import Tensor
-from einops import rearrange
+from einops import rearrange, reduce
 
 
 class Linear(nn.Module):
@@ -437,8 +437,8 @@ class RMSNorm(nn.Module):
         )
 
     def forward(self, in_features: Float[Tensor, " ... d_model"]):
-        rms = torch.sqrt(torch.sum(in_features**2, dim=-1, keepdim=True) / self.d_model + self.eps)
-        output = in_features / (rms)
+        rms = torch.sqrt(reduce(in_features ** 2, "b ... d -> b ... 1",'mean') + self.eps)# torch.sqrt(torch.sum(in_features**2, dim=-1, keepdim=True) / self.d_model + self.eps)
+        output = in_features / rms
         output = output * self.weight
         return output
 
@@ -543,4 +543,46 @@ class TransformerBlock(nn.Module):
         out_features = attn_features + in_features
         ffn = self.ffn(self.ln2(out_features))
         return out_features + ffn
+    
 
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float = 10000.0,
+        device: Optional[None] = None,
+    ):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.context_length = context_length
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.embed = Embedding(vocab_size, d_model)
+
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                d_model, num_heads, d_ff, context_length, rope_theta
+            ) for _ in range(num_layers)
+        ])
+        self.ln = RMSNorm(d_model)
+        self.lm_head = Linear(
+            d_model,
+            vocab_size
+        )
+
+    def forward(
+        self,
+        in_indices: Int[Tensor, "batch_size sequence_length"]
+    ):  
+        embed = self.embed(in_indices)
+        for layer in self.layers:
+            embed = layer(embed)
+        return self.lm_head(self.ln(embed))
