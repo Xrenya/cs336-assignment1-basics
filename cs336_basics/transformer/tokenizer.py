@@ -229,22 +229,20 @@ class Trainer:
         self.merges = []
         self.splits = defaultdict()
         self.pairs_f = defaultdict()
-        self.pair2word = defaultdict()
+        self.pair2word = defaultdict(set)
         self.freq_heap = []
 
     def init(self, word_freq: Dict):
-        for word, word_f in word_freq.items():
+        for word, word_freq in word_freq.items():
             self.splits[word] = [bytes([s]) for s in word]
 
             word_pieces = self.splits[word]
 
             if len(word_pieces) == 1:
                 continue
-            for i, pair in enumerate(zip(word_pieces[:-1], word_pieces[1:])):
-                self.pairs_f[pair] = self.pairs_f.get(pair, 0) + word_f
+            for pair in zip(word_pieces[:-1], word_pieces[1:]):
+                self.pairs_f[pair] = self.pairs_f.get(pair, 0) + word_freq
 
-                if pair not in self.pair2word:
-                    self.pair2word[pair] = set()
                 self.pair2word[pair].add(word)
 
         for pair, freq in self.pairs_f.items():
@@ -274,10 +272,10 @@ class Trainer:
         self,
         best_pair: Tuple[bytes, bytes],
         new_token: bytes,
-        word_freq: Dict,
+        word_freqs: Dict,
     ):
         for word in list(self.pair2word.get(best_pair, set())):
-            word_f = word_freq[word]
+            word_freq = word_freqs[word]
             word_pieces = self.splits[word]
             index = 0
             while index < len(word_pieces) - 1:
@@ -287,17 +285,20 @@ class Trainer:
                 ):
                     word_pieces[index] = new_token
                     word_pieces.pop(index + 1)
-                    if best_pair in self.pairs_f:
+                    
+                    if self.pairs_f[best_pair] <= 0:
                         del self.pairs_f[best_pair]
+                    else:
+                        heapq.heappush(self.freq_heap, (-self.pairs_f[best_pair], best_pair))
 
                     if index > 0:
                         new_pair_left = (word_pieces[index - 1], new_token)
                         old_pair_left = (word_pieces[index - 1], best_pair[0])
-                        self.update_pair_freq(new_pair_left, old_pair_left, word, word_f)
+                        self.update_pair_freq(new_pair_left, old_pair_left, word, word_freq)
                     if index < len(word_pieces) - 1:
                         new_pair_right = (new_token, word_pieces[index + 1])
                         old_pair_right = (best_pair[1], word_pieces[index + 1])
-                        self.update_pair_freq(new_pair_right, old_pair_right, word, word_f)
+                        self.update_pair_freq(new_pair_right, old_pair_right, word, word_freq)
                 else:
                     index += 1
 
@@ -311,9 +312,8 @@ class Trainer:
         self,
         input_path: str
     ) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
-        word_freq = {}
+        word_freq = Counter()
         for sent in self.preprocessor.read(input_path):
-            # update maybe?
             word_freq.update(self.preprocessor.build_word_frequency(sent))
 
         self.token_vocab = {i: bytes([i]) for i in range(256)}
