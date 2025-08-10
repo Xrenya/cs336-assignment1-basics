@@ -1,4 +1,5 @@
 import os
+import heapq
 from typing import BinaryIO, Dict, List, Tuple, Iterable, Optional
 import regex as re
 from collections import defaultdict, Counter
@@ -32,9 +33,9 @@ class PreTokenizer:
                     chunks[i] = file_size
                     break
 
-                found = min_chunk.find(split_tokens)
-                if found != -1:
-                    chunks[index] = index + found
+                found_index = min_chunk.find(split_tokens)
+                if found_index != -1:
+                    chunks[i] = index + found_index
                     break
                 index += min_chunk_size
         return sorted(set(chunks))
@@ -49,14 +50,13 @@ class PreTokenizer:
                 yield re.split(self.special_tokens_patterns, chunk)
 
     def build_word_frequency(self, sents: Iterable[str]) -> Dict:
-        bword_dict = defaultdict()
-        word_dict = defaultdict()
+        bword_dict = Counter()
+        word_dict = Counter()
 
         for sent in sents:
             if not sent:
                 continue
             matches = [word.group(0) for word in self.word_pattern.finditer(sent)]
-
             word_dict.update(matches)
 
         # String into byte frequencies
@@ -218,3 +218,124 @@ class BPE:
                 break
 
         return btext.decode("utf-8", errors="ignore")
+
+
+class Trainer:
+    def __init__(self, vocab_size: int, special_tokens: List[str]):
+        self.vocab_size = vocab_size
+        self.special_tokens = special_tokens
+        self.preprocessor = PreTokenizer(special_tokens)
+        self.vocab = defaultdict()
+        self.merges = []
+        self.splits = defaultdict()
+        self.pairs_f = defaultdict()
+        self.pair2word = defaultdict()
+        self.freq_heap = []
+
+    def init(self, word_freq: Dict):
+        for word, word_f in word_freq.items():
+            self.splits[word] = [bytes([s]) for s in word]
+
+            word_pieces = self.splits[word]
+
+            if len(word_pieces) == 1:
+                continue
+            for i, pair in enumerate(zip(word_pieces[:-1], word_pieces[1:])):
+                self.pairs_f[pair] = self.pairs_f.get(pair, 0) + word_f
+
+                if pair not in self.pair2word:
+                    self.pair2word[pair] = set()
+                self.pair2word[pair].add(word)
+
+        for pair, freq in self.pairs_f.items():
+            heapq.heappush(self.freq_heap, (-freq, pair))
+
+    def get_pairs(self):
+        while self.freq_heap:
+            freq, pair = heapq.heappop(self.freq_heap)
+            freq *= -1
+            if pair in self.pairs_f and self.pairs_f[pair] == freq:
+                return pair
+        raise ValueError("Heap does not return frequent pair")
+    
+    def update_pair_freq(self, new_pair, old_pair, word, word_freq):
+        self.pair2word.setdefault(new_pair, set()).add(word)
+        self.pairs_f[new_pair] = self.pairs_f.get(new_pair, 0) + word_freq
+        heapq.heappush(self.freq_heap, (-self.pairs_f[new_pair], new_pair))
+
+        if old_pair in self.pairs_f:
+            self.pairs_f[old_pair] -= word_freq
+            if self.pairs_f[old_pair] <= 0:
+                del self.pairs_f[old_pair]
+            else:
+                heapq.heappush(self.freq_heap, (-self.pairs_f[old_pair], old_pair))
+
+    def update(
+        self,
+        best_pair: Tuple[bytes, bytes],
+        new_token: bytes,
+        word_freq: Dict,
+    ):
+        for word in list(self.pair2word.get(best_pair, set())):
+            word_f = word_freq[word]
+            word_pieces = self.splits[word]
+            index = 0
+            while index < len(word_pieces) - 1:
+                if (
+                    word_pieces[index] == best_pair[0]
+                    and word_pieces[index + 1] == best_pair[1]
+                ):
+                    word_pieces[index] = new_token
+                    word_pieces.pop(index + 1)
+                    if best_pair in self.pairs_f:
+                        del self.pairs_f[best_pair]
+
+                    if index > 0:
+                        new_pair_left = (word_pieces[index - 1], new_token)
+                        old_pair_left = (word_pieces[index - 1], best_pair[0])
+                        self.update_pair_freq(new_pair_left, old_pair_left, word, word_f)
+                    if index < len(word_pieces) - 1:
+                        new_pair_right = (new_token, word_pieces[index + 1])
+                        old_pair_right = (best_pair[1], word_pieces[index + 1])
+                        self.update_pair_freq(new_pair_right, old_pair_right, word, word_f)
+                else:
+                    index += 1
+
+    def add_special_tokens(self):
+        for i, token in enumerate(self.special_tokens):
+            self.token_vocab[
+                self.vocab_size - len(self.special_tokens) + i
+            ] = token.encode("utf-8")
+
+    def train(
+        self,
+        input_path: str
+    ) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
+        word_freq = {}
+        for sent in self.preprocessor.read(input_path):
+            # update maybe?
+            word_freq.update(self.preprocessor.build_word_frequency(sent))
+
+        self.token_vocab = {i: bytes([i]) for i in range(256)}
+        num_merges = self.vocab_size - 256 - len(self.special_tokens)
+        self.merges = []
+
+        self.init(word_freq)
+
+        for merge_idx in range(num_merges):
+            if not self.pairs_f:
+                break
+
+            best_pair = self.get_pairs()
+            self.merges.append(best_pair)
+
+            new_token = best_pair[0] + best_pair[1]
+            self.token_vocab[256 + merge_idx] = new_token
+
+            self.update(best_pair, new_token, word_freq)
+
+        self.add_special_tokens()
+
+        return self.token_vocab, self.merges
+
+    
