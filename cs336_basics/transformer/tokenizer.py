@@ -65,7 +65,7 @@ class PreTokenizer:
 
         return bword_dict
 
-    def pretonenize(self, sent: str) -> List[bytes]:
+    def pretokenize (self, sent: str) -> List[bytes]:
         splits = re.split(f'({self.special_tokens_patterns})', sent)
         output = []
 
@@ -104,7 +104,7 @@ class BPE:
         self.special_tokens = special_tokens if special_tokens else []
         self.token2id = {token: index for index, token in vocab.items()}
         self.pretokenizer = PreTokenizer(self.special_tokens)
-        self.word2id = defaultdict()
+        self.word2id = defaultdict(list)
     
     @classmethod
     def from_files(
@@ -175,7 +175,7 @@ class BPE:
 
 
     def encode(self, sent: str) -> List[int]:
-        words = self.pretokenizer.pretonenize(sent)
+        words = self.pretokenizer.pretokenize (sent)
         ids = []
         for word in words:
             if word in self.token2id:
@@ -189,8 +189,8 @@ class BPE:
             
         return ids
 
-    def encode_iterable(self, Iterable: Iterable[str]) -> Iterable[int]:
-        word_iter = self.pretokenizer.pretokenize_iter(Iterable)
+    def encode_iterable(self, sents: Iterable[str]) -> Iterable[int]:
+        word_iter = self.pretokenizer.pretokenize_iter(sents)
         for word in word_iter:
             if word in self.token2id:
                 yield self.token2id[word]
@@ -225,10 +225,10 @@ class Trainer:
         self.vocab_size = vocab_size
         self.special_tokens = special_tokens
         self.preprocessor = PreTokenizer(special_tokens)
-        self.vocab = defaultdict()
+        self.vocab = defaultdict(bytes)
         self.merges = []
-        self.splits = defaultdict()
-        self.pairs_f = defaultdict()
+        self.splits = defaultdict(list)
+        self.pairs_f = defaultdict(int)
         self.pair2word = defaultdict(set)
         self.freq_heap = []
 
@@ -303,18 +303,29 @@ class Trainer:
                     index += 1
 
     def add_special_tokens(self):
+        # Create list of special tokens in bytes
+        bspecial_tokens = [token.encode("utf-8") for token in self.special_tokens]
+        
+        # Remove special tokens from current vocabulary
+        to_remove = []
+        for idx, token_bytes in self.token_vocab.items():
+            if token_bytes in bspecial_tokens:
+                to_remove.append(idx)
+        for idx in to_remove:
+            del self.token_vocab[idx]
+        
+        # Add special tokens at reserved positions
         for i, token in enumerate(self.special_tokens):
-            self.token_vocab[
-                self.vocab_size - len(self.special_tokens) + i
-            ] = token.encode("utf-8")
+            reserved_id = self.vocab_size - len(self.special_tokens) + i
+            self.token_vocab[reserved_id] = token.encode("utf-8")
 
     def train(
         self,
         input_path: str
     ) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
         word_freq = Counter()
-        for sent in self.preprocessor.read(input_path):
-            word_freq.update(self.preprocessor.build_word_frequency(sent))
+        for chunk  in self.preprocessor.read(input_path):
+            word_freq.update(self.preprocessor.build_word_frequency(chunk))
 
         self.token_vocab = {i: bytes([i]) for i in range(256)}
         num_merges = self.vocab_size - 256 - len(self.special_tokens)
