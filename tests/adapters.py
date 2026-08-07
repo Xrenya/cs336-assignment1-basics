@@ -15,7 +15,7 @@ from cs336_basics.transformer.module import (
     RotaryEmbedding, RMSNorm, MultiHeadAttentionRoPE, AdamW, TransformerBlock,
     TransformerLM
 )
-from cs336_basics.transformer.tokenizer import BPE, Trainer
+from cs336_basics.transformer.tokenizer import BPETokenizer, Trainer
 from cs336_basics.transformer.utils import (
     clip_gradients,
     cross_entropy_loss,
@@ -678,11 +678,12 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    return BPE(
-        vocab=vocab,
-        merges=merges,
-        special_tokens=special_tokens,
-    )
+    return
+    # return BPETokenizer(
+    #     vocab=vocab,
+    #     merges=merges,
+    #     special_tokens=special_tokens,
+    # )
 
 
 def run_train_bpe(

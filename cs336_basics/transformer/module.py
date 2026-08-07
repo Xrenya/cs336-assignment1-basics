@@ -271,6 +271,7 @@ class RotaryEmbedding(nn.Module):
         """
         Rotary Position Embedding (RoPE) module
         "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2021).
+        With  NTK-aware RoPE Scaling.
 
         Args:
             theta: Frequency base (typically 10,000)
@@ -279,7 +280,7 @@ class RotaryEmbedding(nn.Module):
             device: Target device (optinal)
         """
         super().__init__()
-        self.theta = theta * scale_theta**(d_k / (d_k - 2))
+        self.theta = theta * scale_theta**(d_k / (d_k - 2))  # NTK-aware RoPE Scaling
         self.d_k = d_k
         self.max_seq_len = max_seq_len
         self.device = device
@@ -333,7 +334,7 @@ class RotaryEmbedding(nn.Module):
 
         x_complex = torch.view_as_complex(x_complex)
         
-        rope_pos = self.rope[token_positions]  # (*, seq_len, d_k // 2)
+        rope_pos = self.rope[token_positions.to(self.rope.device)]  # (*, seq_len, d_k // 2)
 
         x_rotated = x_complex * rope_pos  # (*, seq_len, d_k // 2)
 
